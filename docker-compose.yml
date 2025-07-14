@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Banco de dados PostgreSQL
+  postgres:
+    image: postgres:15-alpine
+    container_name: auth-service-postgres
+    environment:
+      POSTGRES_DB: auth_service
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - auth-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Aplicação Go
+  auth-service:
+    build: .
+    container_name: auth-service-app
+    environment:
+      - PORT=8080
+      - ENV=development
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=password
+      - DB_NAME=auth_service
+      - DB_SSL_MODE=disable
+      - JWT_SECRET=your-super-secret-jwt-key-change-in-production
+      - JWT_EXPIRATION_HOURS=24
+      - JWT_REFRESH_EXPIRATION_HOURS=168
+      - HASH_MEMORY=64
+      - HASH_ITERATIONS=3
+      - HASH_PARALLELISM=2
+      - HASH_SALT_LENGTH=16
+      - HASH_KEY_LENGTH=32
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - auth-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  auth-network:
+    driver: bridge 

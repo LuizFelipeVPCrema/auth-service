@@ -68,23 +68,9 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.UserRespons
 }
 
 func (s *AuthService) Login(req *models.LoginRequest) (*models.TokenResponse, error) {
-	// Verificar se o cliente existe
-	var client models.Client
-	err := s.db.DB.QueryRow("SELECT id, secret, active FROM clients WHERE id = ?", req.ClientID).Scan(&client.ID, &client.Secret, &client.Active)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("cliente não encontrado")
-		}
-		return nil, fmt.Errorf("erro ao verificar cliente: %w", err)
-	}
-
-	if !client.Active {
-		return nil, fmt.Errorf("cliente inativo")
-	}
-
 	// Buscar usuário
 	var user models.User
-	err = s.db.DB.QueryRow("SELECT id, email, password, name, active FROM users WHERE email = ?", req.Email).Scan(
+	err := s.db.DB.QueryRow("SELECT id, email, password, name, active FROM users WHERE email = ?", req.Email).Scan(
 		&user.ID, &user.Email, &user.Password, &user.Name, &user.Active)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -103,20 +89,19 @@ func (s *AuthService) Login(req *models.LoginRequest) (*models.TokenResponse, er
 		return nil, fmt.Errorf("credenciais inválidas")
 	}
 
+	// Usar um client ID padrão ou criar um cliente temporário
+	defaultClientID := "00000000-0000-0000-0000-000000000000"
+
 	// Gerar tokens
-	accessToken, err := s.generateAccessToken(user, client.ID.String())
+	accessToken, err := s.generateAccessToken(user, defaultClientID)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao gerar access token: %w", err)
 	}
 
-	refreshToken, err := s.generateRefreshToken(user.ID, client.ID)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao gerar refresh token: %w", err)
-	}
-
+	// Para login simples, não geramos refresh token
 	return &models.TokenResponse{
 		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
+		RefreshToken: "",
 		TokenType:    "Bearer",
 		ExpiresIn:    int64(s.cfg.JWT.ExpirationHours * 3600), // segundos
 	}, nil

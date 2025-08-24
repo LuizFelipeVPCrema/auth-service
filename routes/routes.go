@@ -3,6 +3,7 @@ package routes
 import (
 	"auth-service/handlers"
 	"auth-service/middleware"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,6 +18,14 @@ func SetupRoutes(authHandler *handlers.AuthHandler, authMiddleware *middleware.A
 	// Rotas públicas
 	public := router.Group("/api/v1")
 	{
+		// Health check
+		public.GET("/health", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{
+				"status":  "ok",
+				"message": "Auth service is running",
+			})
+		})
+
 		// Rotas de autenticação
 		auth := public.Group("/auth")
 		{

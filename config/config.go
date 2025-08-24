@@ -12,7 +12,6 @@ type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	JWT      JWTConfig
-	Hash     HashConfig
 }
 
 type ServerConfig struct {
@@ -21,26 +20,20 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	Name     string
-	SSLMode  string
+	Type     string // "sqlite" ou "mysql"
+	Path     string // Para SQLite
+	Host     string // Para MySQL
+	Port     string // Para MySQL
+	User     string // Para MySQL
+	Password string // Para MySQL
+	Name     string // Para MySQL
+	SSLMode  string // Para MySQL
 }
 
 type JWTConfig struct {
 	Secret                 string
 	ExpirationHours        int
 	RefreshExpirationHours int
-}
-
-type HashConfig struct {
-	Memory      uint32
-	Iterations  uint32
-	Parallelism uint8
-	SaltLength  uint32
-	KeyLength   uint32
 }
 
 func Load() *Config {
@@ -54,10 +47,12 @@ func Load() *Config {
 			Env:  getEnv("ENV", "development"),
 		},
 		Database: DatabaseConfig{
+			Type:     getEnv("DB_TYPE", "sqlite"),
+			Path:     getEnv("DB_PATH", "auth_service.db"),
 			Host:     getEnv("DB_HOST", "localhost"),
-			Port:     getEnv("DB_PORT", "5432"),
-			User:     getEnv("DB_USER", "postgres"),
-			Password: getEnv("DB_PASSWORD", "password"),
+			Port:     getEnv("DB_PORT", "3306"),
+			User:     getEnv("DB_USER", "root"),
+			Password: getEnv("DB_PASSWORD", ""),
 			Name:     getEnv("DB_NAME", "auth_service"),
 			SSLMode:  getEnv("DB_SSL_MODE", "disable"),
 		},
@@ -65,13 +60,6 @@ func Load() *Config {
 			Secret:                 getEnv("JWT_SECRET", "your-super-secret-jwt-key-change-in-production"),
 			ExpirationHours:        getEnvAsInt("JWT_EXPIRATION_HOURS", 24),
 			RefreshExpirationHours: getEnvAsInt("JWT_REFRESH_EXPIRATION_HOURS", 168),
-		},
-		Hash: HashConfig{
-			Memory:      uint32(getEnvAsInt("HASH_MEMORY", 64)),
-			Iterations:  uint32(getEnvAsInt("HASH_ITERATIONS", 3)),
-			Parallelism: uint8(getEnvAsInt("HASH_PARALLELISM", 2)),
-			SaltLength:  uint32(getEnvAsInt("HASH_SALT_LENGTH", 16)),
-			KeyLength:   uint32(getEnvAsInt("HASH_KEY_LENGTH", 32)),
 		},
 	}
 }

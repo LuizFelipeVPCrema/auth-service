@@ -1,0 +1,29 @@
+# Dockerfile para desenvolvimento Auth Service
+FROM golang:1.25.0-alpine
+
+# Instalar dependências necessárias
+RUN apk add --no-cache git gcc musl-dev sqlite-dev
+
+# Definir diretório de trabalho
+WORKDIR /app
+
+# Habilitar CGO
+ENV CGO_ENABLED=1
+
+# Instalar air para hot reload
+RUN go install github.com/cosmtrek/air@latest
+
+# Copiar arquivos de dependências
+COPY go.mod go.sum ./
+
+# Baixar dependências
+RUN go mod download
+
+# Copiar código fonte
+COPY . .
+
+# Expor porta
+EXPOSE 8081
+
+# Comando para executar com hot reload
+CMD ["air"]

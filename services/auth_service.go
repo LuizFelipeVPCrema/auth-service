@@ -11,37 +11,27 @@ import (
 	"auth-service/database"
 	"auth-service/models"
 
-	"github.com/alexedwards/argon2id"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthService struct {
-	db   *database.Database
-	cfg  *config.Config
-	hash *argon2id.Hash
+	db  *database.Database
+	cfg *config.Config
 }
 
 func NewAuthService(db *database.Database, cfg *config.Config) *AuthService {
-	hash := &argon2id.Hash{
-		Memory:      cfg.Hash.Memory,
-		Iterations:  cfg.Hash.Iterations,
-		Parallelism: cfg.Hash.Parallelism,
-		SaltLength:  cfg.Hash.SaltLength,
-		KeyLength:   cfg.Hash.KeyLength,
-	}
-
 	return &AuthService{
-		db:   db,
-		cfg:  cfg,
-		hash: hash,
+		db:  db,
+		cfg: cfg,
 	}
 }
 
 func (s *AuthService) Register(req *models.RegisterRequest) (*models.UserResponse, error) {
 	// Verificar se o email já existe
 	var existingUser models.User
-	err := s.db.DB.QueryRow("SELECT id FROM users WHERE email = $1", req.Email).Scan(&existingUser.ID)
+	err := s.db.DB.QueryRow("SELECT id FROM users WHERE email = ?", req.Email).Scan(&existingUser.ID)
 	if err != sql.ErrNoRows {
 		if err == nil {
 			return nil, fmt.Errorf("email já está em uso")
@@ -49,8 +39,8 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.UserRespons
 		return nil, fmt.Errorf("erro ao verificar email: %w", err)
 	}
 
-	// Hash da senha
-	hashedPassword, err := argon2id.CreateHash(req.Password, s.hash)
+	// Hash da senha com bcrypt
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar hash da senha: %w", err)
 	}
@@ -61,7 +51,7 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.UserRespons
 
 	_, err = s.db.DB.Exec(`
 		INSERT INTO users (id, email, password, name, active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, userID, req.Email, hashedPassword, req.Name, true, now, now)
 
 	if err != nil {
@@ -80,7 +70,7 @@ func (s *AuthService) Register(req *models.RegisterRequest) (*models.UserRespons
 func (s *AuthService) Login(req *models.LoginRequest) (*models.TokenResponse, error) {
 	// Verificar se o cliente existe
 	var client models.Client
-	err := s.db.DB.QueryRow("SELECT id, secret, active FROM clients WHERE id = $1", req.ClientID).Scan(&client.ID, &client.Secret, &client.Active)
+	err := s.db.DB.QueryRow("SELECT id, secret, active FROM clients WHERE id = ?", req.ClientID).Scan(&client.ID, &client.Secret, &client.Active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("cliente não encontrado")
@@ -94,7 +84,7 @@ func (s *AuthService) Login(req *models.LoginRequest) (*models.TokenResponse, er
 
 	// Buscar usuário
 	var user models.User
-	err = s.db.DB.QueryRow("SELECT id, email, password, name, active FROM users WHERE email = $1", req.Email).Scan(
+	err = s.db.DB.QueryRow("SELECT id, email, password, name, active FROM users WHERE email = ?", req.Email).Scan(
 		&user.ID, &user.Email, &user.Password, &user.Name, &user.Active)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -107,13 +97,9 @@ func (s *AuthService) Login(req *models.LoginRequest) (*models.TokenResponse, er
 		return nil, fmt.Errorf("usuário inativo")
 	}
 
-	// Verificar senha
-	match, err := argon2id.ComparePasswordAndHash(req.Password, user.Password)
+	// Verificar senha com bcrypt
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
 	if err != nil {
-		return nil, fmt.Errorf("erro ao verificar senha: %w", err)
-	}
-
-	if !match {
 		return nil, fmt.Errorf("credenciais inválidas")
 	}
 
@@ -139,7 +125,7 @@ func (s *AuthService) Login(req *models.LoginRequest) (*models.TokenResponse, er
 func (s *AuthService) RefreshToken(req *models.RefreshTokenRequest) (*models.TokenResponse, error) {
 	// Verificar se o cliente existe
 	var client models.Client
-	err := s.db.DB.QueryRow("SELECT id, active FROM clients WHERE id = $1", req.ClientID).Scan(&client.ID, &client.Active)
+	err := s.db.DB.QueryRow("SELECT id, active FROM clients WHERE id = ?", req.ClientID).Scan(&client.ID, &client.Active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("cliente não encontrado")
@@ -156,7 +142,7 @@ func (s *AuthService) RefreshToken(req *models.RefreshTokenRequest) (*models.Tok
 	err = s.db.DB.QueryRow(`
 		SELECT id, user_id, client_id, token, expires_at, revoked 
 		FROM refresh_tokens 
-		WHERE token = $1 AND client_id = $2
+		WHERE token = ? AND client_id = ?
 	`, req.RefreshToken, client.ID).Scan(
 		&refreshToken.ID, &refreshToken.UserID, &refreshToken.ClientID,
 		&refreshToken.Token, &refreshToken.ExpiresAt, &refreshToken.Revoked)
@@ -178,7 +164,7 @@ func (s *AuthService) RefreshToken(req *models.RefreshTokenRequest) (*models.Tok
 
 	// Buscar usuário
 	var user models.User
-	err = s.db.DB.QueryRow("SELECT id, email, name, active FROM users WHERE id = $1", refreshToken.UserID).Scan(
+	err = s.db.DB.QueryRow("SELECT id, email, name, active FROM users WHERE id = ?", refreshToken.UserID).Scan(
 		&user.ID, &user.Email, &user.Name, &user.Active)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar usuário: %w", err)
@@ -189,7 +175,7 @@ func (s *AuthService) RefreshToken(req *models.RefreshTokenRequest) (*models.Tok
 	}
 
 	// Revogar refresh token atual
-	_, err = s.db.DB.Exec("UPDATE refresh_tokens SET revoked = true WHERE id = $1", refreshToken.ID)
+	_, err = s.db.DB.Exec("UPDATE refresh_tokens SET revoked = true WHERE id = ?", refreshToken.ID)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao revogar refresh token: %w", err)
 	}
@@ -216,7 +202,7 @@ func (s *AuthService) RefreshToken(req *models.RefreshTokenRequest) (*models.Tok
 func (s *AuthService) ValidateToken(tokenString, clientID string) (*models.UserResponse, error) {
 	// Verificar se o cliente existe
 	var client models.Client
-	err := s.db.DB.QueryRow("SELECT id, active FROM clients WHERE id = $1", clientID).Scan(&client.ID, &client.Active)
+	err := s.db.DB.QueryRow("SELECT id, active FROM clients WHERE id = ?", clientID).Scan(&client.ID, &client.Active)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return nil, fmt.Errorf("cliente não encontrado")
@@ -229,7 +215,7 @@ func (s *AuthService) ValidateToken(tokenString, clientID string) (*models.UserR
 	}
 
 	// Validar token JWT
-	token, err := jwt.ParseWithClaims(tokenString, &models.JWTCustomClaims{}, func(token *jwt.Token) (interface{}, error) {
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("método de assinatura inesperado: %v", token.Header["alg"])
 		}
@@ -244,22 +230,27 @@ func (s *AuthService) ValidateToken(tokenString, clientID string) (*models.UserR
 		return nil, fmt.Errorf("token inválido")
 	}
 
-	claims, ok := token.Claims.(*models.JWTCustomClaims)
+	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return nil, fmt.Errorf("claims inválidas")
 	}
 
-	if claims.Type != "access" {
+	if claims["type"] != "access" {
 		return nil, fmt.Errorf("tipo de token inválido")
 	}
 
-	if claims.ClientID != clientID {
+	if claims["client_id"] != clientID {
 		return nil, fmt.Errorf("cliente não autorizado")
+	}
+
+	userID, ok := claims["user_id"].(string)
+	if !ok {
+		return nil, fmt.Errorf("user_id inválido")
 	}
 
 	// Buscar usuário
 	var user models.User
-	err = s.db.DB.QueryRow("SELECT id, email, name, active, created_at FROM users WHERE id = $1", claims.UserID).Scan(
+	err = s.db.DB.QueryRow("SELECT id, email, name, active, created_at FROM users WHERE id = ?", userID).Scan(
 		&user.ID, &user.Email, &user.Name, &user.Active, &user.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar usuário: %w", err)
@@ -313,7 +304,7 @@ func (s *AuthService) generateRefreshToken(userID, clientID uuid.UUID) (string, 
 
 	_, err := s.db.DB.Exec(`
 		INSERT INTO refresh_tokens (id, user_id, client_id, token, expires_at, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, refreshTokenID, userID, clientID, token, expiresAt, now, now)
 
 	if err != nil {
@@ -336,7 +327,7 @@ func (s *AuthService) CreateClient(name, description string) (*models.Client, er
 
 	_, err := s.db.DB.Exec(`
 		INSERT INTO clients (id, name, description, secret, active, created_at, updated_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 	`, clientID, name, description, secret, true, now, now)
 
 	if err != nil {

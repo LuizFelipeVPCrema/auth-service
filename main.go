@@ -9,12 +9,13 @@ import (
 	"syscall"
 	"time"
 
-	"auth-service/config"
-	"auth-service/database"
-	"auth-service/handlers"
-	"auth-service/middleware"
-	"auth-service/routes"
-	"auth-service/services"
+	"study-manager-service/internal/clients"
+	"study-manager-service/internal/config"
+	"study-manager-service/internal/database"
+	"study-manager-service/internal/middleware"
+	"study-manager-service/internal/repositories"
+	"study-manager-service/internal/routes"
+	"study-manager-service/internal/services"
 
 	"github.com/gin-gonic/gin"
 )
@@ -24,9 +25,7 @@ func main() {
 	cfg := config.Load()
 
 	// Configurar modo do Gin
-	if cfg.Server.Env == "production" {
-		gin.SetMode(gin.ReleaseMode)
-	}
+	gin.SetMode(cfg.Server.Mode)
 
 	// Conectar ao banco de dados
 	db, err := database.NewDatabase(cfg)
@@ -35,22 +34,53 @@ func main() {
 	}
 	defer db.Close()
 
-	// Inicializar tabelas
-	if err := db.InitTables(); err != nil {
-		log.Fatalf("Erro ao inicializar tabelas: %v", err)
+	// Executar migrações
+	if err := db.Migrate(); err != nil {
+		log.Fatalf("Erro ao executar migrações: %v", err)
 	}
 
+	// Criar índices
+	if err := db.CreateIndexes(); err != nil {
+		log.Fatalf("Erro ao criar índices: %v", err)
+	}
+
+	// Inicializar cliente de autenticação
+	authClient := clients.NewAuthClient(cfg)
+
+	// Verificar conectividade com auth-service
+	if err := authClient.HealthCheck(); err != nil {
+		log.Printf("Aviso: Auth-service não está disponível: %v", err)
+	} else {
+		log.Println("Conexão com auth-service estabelecida com sucesso")
+	}
+
+	// Inicializar repositórios
+	studentRepo := repositories.NewStudentRepository(db.DB)
+	subjectRepo := repositories.NewSubjectRepository(db.DB)
+	examRepo := repositories.NewExamRepository(db.DB)
+
 	// Inicializar serviços
-	authService := services.NewAuthService(db, cfg)
+	studentService := services.NewStudentService(studentRepo, authClient)
+	subjectService := services.NewSubjectService(subjectRepo, authClient)
+	examService := services.NewExamService(examRepo, authClient)
 
-	// Inicializar handlers
-	authHandler := handlers.NewAuthHandler(authService)
-
-	// Inicializar middleware
-	authMiddleware := middleware.NewAuthMiddleware(authService)
+	// Inicializar middlewares
+	authMiddleware := middleware.NewAuthMiddleware(authClient)
+	rateLimiter := middleware.NewRateLimiter(cfg)
+	validationMiddleware := middleware.NewValidationMiddleware(cfg)
+	auditLogger := middleware.NewAuditLogger(cfg)
 
 	// Configurar rotas
-	router := routes.SetupRoutes(authHandler, authMiddleware)
+	router := routes.SetupRoutes(
+		cfg,
+		authMiddleware,
+		rateLimiter,
+		validationMiddleware,
+		auditLogger,
+		studentService,
+		subjectService,
+		examService,
+	)
 
 	// Configurar servidor HTTP
 	srv := &http.Server{
@@ -64,8 +94,8 @@ func main() {
 
 	// Iniciar servidor em uma goroutine
 	go func() {
-		log.Printf("Servidor iniciado na porta %s", cfg.Server.Port)
-		log.Printf("Ambiente: %s", cfg.Server.Env)
+		log.Printf("Study Manager Service iniciado na porta %s", cfg.Server.Port)
+		log.Printf("Ambiente: %s", cfg.Server.Mode)
 		log.Printf("Documentação da API disponível em: http://localhost:%s/api/v1", cfg.Server.Port)
 
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -75,7 +105,7 @@ func main() {
 
 	// Aguardar sinal de interrupção
 	<-quit
-	log.Println("Desligando servidor...")
+	log.Println("Desligando Study Manager Service...")
 
 	// Contexto com timeout para shutdown graceful
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -86,5 +116,5 @@ func main() {
 		log.Fatalf("Erro ao desligar servidor: %v", err)
 	}
 
-	log.Println("Servidor desligado com sucesso")
+	log.Println("Study Manager Service desligado com sucesso")
 }

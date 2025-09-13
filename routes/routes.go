@@ -15,9 +15,9 @@ func SetupRoutes(authHandler *handlers.AuthHandler, authMiddleware *middleware.A
 
 	// Configuração do CORS
 	corsConfig := cors.Config{
-		AllowOrigins:     []string{"http://localhost:4000", "http://127.0.0.1:4000"},
+		AllowOrigins:     []string{"http://localhost:4000", "http://127.0.0.1:4000", "http://localhost:4200", "http://127.0.0.1:4200"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Requested-With"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Requested-With", "X-Client-ID"},
 		ExposeHeaders:    []string{"Content-Length"},
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,

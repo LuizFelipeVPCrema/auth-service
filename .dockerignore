@@ -1,0 +1,71 @@
+# Git
+.git
+.gitignore
+
+# Documentation
+*.md
+README*
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Development
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Runtime
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage
+coverage/
+*.out
+
+# Dependencies
+vendor/
+
+# Test
+test/
+tests/
+*_test.go
+
+# Build artifacts
+main
+study-manager-service
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads
+uploads/
+
+# Temporary files
+tmp/
+temp/

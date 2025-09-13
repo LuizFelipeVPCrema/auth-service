@@ -1,13 +1,13 @@
 # Build stage
-FROM golang:1.25.0-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 # Instalar dependências necessárias
-RUN apk add --no-cache git gcc musl-dev sqlite-dev
+RUN apk add --no-cache git curl gcc musl-dev
 
 # Definir diretório de trabalho
 WORKDIR /app
 
-# Copiar arquivos de dependências
+# Copiar go mod e go sum
 COPY go.mod go.sum ./
 
 # Baixar dependências
@@ -16,14 +16,15 @@ RUN go mod download
 # Copiar código fonte
 COPY . .
 
-# Build da aplicação
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main .
+# Atualizar dependências e build da aplicação
+RUN go mod download && \
+    CGO_ENABLED=1 GOOS=linux go build -a -installsuffix cgo -o main .
 
 # Runtime stage
 FROM alpine:latest
 
-# Instalar certificados CA, SQLite e curl
-RUN apk --no-cache add ca-certificates sqlite curl
+# Instalar dependências necessárias
+RUN apk --no-cache add ca-certificates curl
 
 # Criar usuário não-root
 RUN addgroup -g 1001 -S appgroup && \
@@ -32,15 +33,12 @@ RUN addgroup -g 1001 -S appgroup && \
 # Definir diretório de trabalho
 WORKDIR /app
 
-# Criar diretório data e ajustar permissões
-RUN mkdir -p /app/data && \
-    chown -R appuser:appgroup /app/data
+# Criar diretórios necessários
+RUN mkdir -p /app/data /app/uploads && \
+    chown -R appuser:appgroup /app
 
-# Copiar binário do builder
+# Copiar binário da aplicação
 COPY --from=builder /app/main .
-
-# Mudar propriedade do arquivo
-RUN chown appuser:appgroup main
 
 # Mudar para usuário não-root
 USER appuser
@@ -48,5 +46,9 @@ USER appuser
 # Expor porta
 EXPOSE 8080
 
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8080/api/v1/health || exit 1
+
 # Comando para executar a aplicação
-CMD ["./main"] 
+CMD ["./main"]
